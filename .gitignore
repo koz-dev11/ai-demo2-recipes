@@ -1,0 +1,7 @@
+.aws-sam/
+.cursor/
+.playwright-mcp/
+.pytest_cache/
+.serena/
+*.pyc
+__pycache__/

@@ -1,0 +1,34 @@
+schema: spec-driven
+
+context: |
+  Language: ja
+  All artifacts must be written in ja.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Project: ai-demo2-recipes. Public recipe board, no auth. Personal / business data stays out.
+  Human-managed AGENTS.md overrides everything; never edit it. Never commit without approval.
+
+  Layout:
+  - frontend/ React 19 + TypeScript + Vite 7 (routes /, /new, /recipes/:id)
+  - backend/ FastAPI single-file main.py (Lambda via Mangum)
+  - template.yaml AWS SAM. Assumed stack name: ai-demo2-recipes. Do not share stack, table, or bucket with ai-demo1-checklist.
+
+  Contract:
+  - JSON camelCase: id, title, body, favorite, createdAt, ingredients, imageUrl
+  - API /api/recipes. Env RECIPES_TABLE. TableName ${AWS::StackName}-recipes. FunctionName ${AWS::StackName}-recipes
+  - favorite is a board-wide star (no auth). Local store is in-memory dict; prod is DynamoDB
+  - CORS: API Gateway in prod; Vite /api proxy locally. Never add FastAPI CORS middleware
+
+  Out of scope unless the user explicitly asks: search, categories, login, admin, mobile app, soft-delete, list-delete, tags, attachments, realtime.
+
+rules:
+  proposal:
+    - 本文は日本語。英語で書いて後から和訳しない
+    - Why / What Changes / Capabilities / Impact などの見出しは英語のまま
+  specs:
+    - Requirement 本文と Scenario の説明は日本語
+    - ADDED Requirements などの節見出し、Requirement タイトル前のラベル、MUST / MUST NOT、WHEN / THEN / AND は英語のまま
+  design:
+    - 本文は日本語。見出し Context / Goals / Non-Goals / Decisions は英語のまま
+  tasks:
+    - タスクの説明は日本語

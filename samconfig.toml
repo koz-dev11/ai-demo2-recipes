@@ -1,0 +1,6 @@
+version = 0.1
+
+[default.global.parameters]
+stack_name = "ai-demo2-recipes"
+region = "ap-northeast-1"
+profile = "deploy"

@@ -1,0 +1,282 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: レシピボード - React + Python Lambda + API Gateway + DynamoDB
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: python3.14
+    Architectures:
+      - x86_64
+    MemorySize: 256
+
+Resources:
+  RecipesHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowHeaders:
+          - Content-Type
+        AllowMethods:
+          - GET
+          - POST
+          - PATCH
+          - DELETE
+          - OPTIONS
+
+  RecipesTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      PrimaryKey:
+        Name: id
+        Type: String
+      TableName: !Sub '${AWS::StackName}-recipes'
+
+  RecipesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-recipes'
+      CodeUri: backend/
+      Handler: main.handler
+      Description: Recipes API
+      Environment:
+        Variables:
+          RECIPES_TABLE: !Ref RecipesTable
+          RECIPE_IMAGES_BUCKET: !Ref RecipeImagesBucket
+          RECIPE_IMAGES_PUBLIC_BASE: !Sub 'https://${RecipeImagesDistribution.DomainName}'
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RecipesTable
+        - S3WritePolicy:
+            BucketName: !Ref RecipeImagesBucket
+      Events:
+        RecipesList:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RecipesHttpApi
+            Path: /api/recipes
+            Method: GET
+        RecipesCreate:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RecipesHttpApi
+            Path: /api/recipes
+            Method: POST
+        RecipesGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RecipesHttpApi
+            Path: /api/recipes/{id}
+            Method: GET
+        RecipesPatch:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RecipesHttpApi
+            Path: /api/recipes/{id}
+            Method: PATCH
+        RecipesDelete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RecipesHttpApi
+            Path: /api/recipes/{id}
+            Method: DELETE
+        RecipesImageUploadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RecipesHttpApi
+            Path: /api/recipes/{id}/image-upload-url
+            Method: POST
+        RecipesConfig:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RecipesHttpApi
+            Path: /api/config
+            Method: GET
+
+  RecipeImagesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-recipe-images-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - !Sub 'https://${FrontendDistribution.DomainName}'
+            AllowedMethods:
+              - PUT
+              - GET
+              - HEAD
+            AllowedHeaders:
+              - '*'
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+
+  RecipeImagesOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-recipe-images-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  RecipeImagesDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        PriceClass: PriceClass_200
+        Origins:
+          - Id: RecipeImagesS3Origin
+            DomainName: !GetAtt RecipeImagesBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt RecipeImagesOAC.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: RecipeImagesS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+  RecipeImagesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref RecipeImagesBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${RecipeImagesBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${RecipeImagesDistribution}'
+
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-frontend-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}'
+
+  FrontendOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-frontend-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        PriceClass: PriceClass_200
+        Origins:
+          - Id: FrontendS3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt FrontendOAC.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: FrontendS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+Outputs:
+  ApiUrl:
+    Description: API base URL
+    Value: !Sub 'https://${RecipesHttpApi}.execute-api.${AWS::Region}.amazonaws.com/prod'
+  RecipesEndpoint:
+    Description: GET/POST /api/recipes
+    Value: !Sub 'https://${RecipesHttpApi}.execute-api.${AWS::Region}.amazonaws.com/prod/api/recipes'
+  RecipesTableName:
+    Description: DynamoDB table for recipes
+    Value: !Ref RecipesTable
+  FrontendBucketName:
+    Description: S3 bucket for React build
+    Value: !Ref FrontendBucket
+  FrontendUrl:
+    Description: CloudFront URL
+    Value: !Sub 'https://${FrontendDistribution.DomainName}'
+  CloudFrontDistributionId:
+    Description: CloudFront distribution ID (for cache invalidation)
+    Value: !Ref FrontendDistribution
+  RecipeImagesBucketName:
+    Description: S3 bucket for recipe images (not the frontend dist bucket)
+    Value: !Ref RecipeImagesBucket
+  RecipeImagesUrl:
+    Description: CloudFront URL for recipe images
+    Value: !Sub 'https://${RecipeImagesDistribution.DomainName}'
