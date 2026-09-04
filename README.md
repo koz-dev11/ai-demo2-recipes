@@ -3,6 +3,9 @@
 AI 利用開発の練習用アプリ。認証なしの公開レシピボード。
 個人情報・業務データは入れない。
 
+フロント: https://dhc8gvvdire7.cloudfront.net
+API: https://orgoamhsvf.execute-api.ap-northeast-1.amazonaws.com/prod
+
 メモアプリ（`ai-demo1-checklist`）とは別リポジトリ。残す前提であり、こちらの本番リソース・URL・`.env.production`・SAM スタックは使わない。
 
 ## 成功条件
